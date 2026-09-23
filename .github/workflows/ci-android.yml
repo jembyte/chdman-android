@@ -3,11 +3,21 @@ name: CI (Android)
 on:
   workflow_dispatch:
 
+# Pin the exact mamedev/mame tag chdman is built from. Bump this to target a
+# different MAME release; it is also reused below as the GitHub Release's
+# tag/title, matching the convention mamedev/mame uses for its own releases
+# (e.g. tag "mame0289", title "MAME 0.289").
+env:
+  MAME_SRC_VER: mame0289
+
 jobs:
   build-android:
     runs-on: ubuntu-latest
-    env:
-      MAME_SRC_VER: mame0284
+    strategy:
+      fail-fast: false
+      # One matrix job per Android ABI chdman is built for.
+      matrix:
+        arch: [android-arm, android-arm64, android-x86, android-x64]
 
     steps:
     - uses: actions/checkout@v4
@@ -18,69 +28,71 @@ jobs:
         ref: ${{ env.MAME_SRC_VER }}
         path: mame
 
-    - name: Install dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y libsdl2-dev libsdl2-ttf-dev libfontconfig-dev libasound2-dev libxinerama-dev libxi-dev qtbase5-dev qtbase5-dev-tools
-
     - name: Setup Android NDK
       uses: nttld/setup-ndk@v1
       id: setup-ndk
       with:
-        ndk-version: r26d
-        add-to-path: true
+        ndk-version: r27d
+        add-to-path: false
 
-    - name: Setup variables
-      id: setup-vars
-      run: |
-        sdlandroid=${{ github.workspace }}
-        sdlandroid="$(readlink -f $sdlandroid/..)"
-        sdlandroid="$sdlandroid/SDL_Android_arm64"
-        echo "sdlandroid=$sdlandroid" >> "$GITHUB_OUTPUT"
-
-    - name: Build SDL2
-      env:
-        ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        SDL_INSTALL_ROOT: ${{ steps.setup-vars.outputs.sdlandroid }}
-        SDL2DLURL: 'https://github.com/libsdl-org/SDL/releases/download/release-2.32.10/SDL2-2.32.10.tar.gz'
-      run: |
-        wget -qO - "$SDL2DLURL" | \
-        tar -xzf -
-
-        (
-            cd SDL2-2.32.10
-
-            cmake -S . -B build_arm64 \
-            -DANDROID_PLATFORM=android-24 \
-            -DANDROID_ABI=arm64-v8a \
-            -DCMAKE_INSTALL_PREFIX="$SDL_INSTALL_ROOT" \
-            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
-            -DSDL_SHARED=OFF -DSDL_STATIC=ON -DSDL_STATIC_PIC=ON -DSDL_TEST=ON \
-            -DSDL2_DISABLE_SDL2MAIN=OFF -DSDL2_DISABLE_INSTALL=OFF \
-            -DCMAKE_INSTALL_INCLUDEDIR=include -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_BUILD_TYPE=Release
-
-            make -C build_arm64 install
-        )
-
-        rm -rf SDL2-2.32.10
-
-    - name: Build
+    - name: Build chdman (${{ matrix.arch }})
       env:
         CUSTOM_VCS_REVISION: ${{ env.MAME_SRC_VER }}
         ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
-        SDL_INSTALL_ROOT: ${{ steps.setup-vars.outputs.sdlandroid }}
-        SUBTARGET: tiny
+        SUBTARGET: mame
         EMULATOR: 0
-        TOOLS: 1
+        TOOLS: chdman
         LDFLAGS: -static-libstdc++
       working-directory: mame
       run: |
         patch -p1 < ../${{ env.MAME_SRC_VER }}.patch
-        make android-arm64 -j$(nproc)
+        make ${{ matrix.arch }} -j1
+        ${{ env.ANDROID_NDK_HOME }}/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip --strip-all chdman
 
     - uses: actions/upload-artifact@v4
       with:
-        name: chdman-android-arm64-clang-${{ env.MAME_SRC_VER }}
+        name: chdman-${{ matrix.arch }}-${{ env.MAME_SRC_VER }}
         path: |
           mame/chdman
         if-no-files-found: error
+
+  # Wait for all four architectures to finish, then publish them together as
+  # a single GitHub Release, named and tagged the same way mamedev/mame names
+  # its own releases.
+  release:
+    needs: build-android
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+    - name: Download all architecture artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+
+    - name: Collect binaries into a flat release folder
+      run: |
+        mkdir -p release
+        for dir in artifacts/*/; do
+          name="$(basename "$dir")"
+          cp "$dir/chdman" "release/$name"
+        done
+        ls -la release
+
+    - name: Derive the dotted MAME version
+      id: version
+      run: |
+        v="${MAME_SRC_VER#mame}"
+        echo "dotted=${v:0:1}.${v:1}" >> "$GITHUB_OUTPUT"
+
+    - name: Publish GitHub Release
+      uses: softprops/action-gh-release@v3
+      with:
+        tag_name: ${{ env.MAME_SRC_VER }}
+        name: MAME ${{ steps.version.outputs.dotted }}
+        body: |
+          ${{ env.MAME_SRC_VER }}
+
+          MAME ${{ steps.version.outputs.dotted }}
+        files: release/*

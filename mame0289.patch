@@ -1,0 +1,165 @@
+--- a/makefile
++++ b/makefile
+@@ -600,6 +600,9 @@
+ ifdef TOOLS
+ ifneq '$(TOOLS)' '0'
+ PARAMS += --with-tools
++ifneq '$(TOOLS)' '1'
++BUILD_TARGETS += $(TOOLS)
++endif
+ endif
+ endif
+ 
+@@ -1041,7 +1044,9 @@
+ else
+ OLD_GIT_VERSION := $(shell cat $(GENDIR)/git_desc 2> NUL)
+ endif
+-ifneq ($(IGNORE_GIT),1)
++ifneq ($(CUSTOM_VCS_REVISION),)
++NEW_GIT_VERSION := $(CUSTOM_VCS_REVISION)
++else ifneq ($(IGNORE_GIT),1)
+ NEW_GIT_VERSION := $(shell git describe --dirty)
+ else
+ NEW_GIT_VERSION := unknown
+@@ -1167,9 +1172,11 @@
+ ifndef ANDROID_NDK_HOME
+ 	$(error ANDROID_NDK_HOME is not set)
+ endif
++ifneq (,$(findstring --with-emulator,$(PARAMS)))
+ ifndef SDL_INSTALL_ROOT
+ 	$(error SDL_INSTALL_ROOT is not set)
+ endif
++endif
+ ifeq ($(OS),windows)
+ 	$(eval CLANG_VERSION := $(shell $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/windows-x86_64/bin/clang -dumpversion 2> /dev/null))
+ else ifeq ($(OS),linux)
+@@ -1189,8 +1196,10 @@
+ 
+ .PHONY: android-arm
+ android-arm: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm/Makefile
++ifeq ($(BUILD_TARGETS),)
+ 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm config=$(CONFIG) precompile
+-	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm config=$(CONFIG)
++endif
++	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm config=$(CONFIG) $(BUILD_TARGETS)
+ 
+ #-------------------------------------------------
+ # android-arm64
+@@ -1201,8 +1210,10 @@
+ 
+ .PHONY: android-arm64
+ android-arm64: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm64/Makefile
++ifeq ($(BUILD_TARGETS),)
+ 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm64 config=$(CONFIG) precompile
+-	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm64 config=$(CONFIG)
++endif
++	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-arm64 config=$(CONFIG) $(BUILD_TARGETS)
+ 
+ #-------------------------------------------------
+ # android-x86
+@@ -1213,8 +1224,10 @@
+ 
+ .PHONY: android-x86
+ android-x86: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x86/Makefile
++ifeq ($(BUILD_TARGETS),)
+ 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x86 config=$(CONFIG) precompile
+-	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x86 config=$(CONFIG)
++endif
++	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x86 config=$(CONFIG) $(BUILD_TARGETS)
+ 
+ #-------------------------------------------------
+ # android-x64
+@@ -1225,8 +1238,10 @@
+ 
+ .PHONY: android-x64
+ android-x64: android-ndk generate $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x64/Makefile
++ifeq ($(BUILD_TARGETS),)
+ 	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x64 config=$(CONFIG) precompile
+-	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x64 config=$(CONFIG)
++endif
++	$(SILENT) $(MAKE) $(MAKEPARAMS) -C $(PROJECTDIR_SDL)/$(MAKETYPE)-android-x64 config=$(CONFIG) $(BUILD_TARGETS)
+ 
+ #-------------------------------------------------
+ # asmjs / Emscripten
+--- a/scripts/src/lib.lua
++++ b/scripts/src/lib.lua
+@@ -34,7 +34,6 @@
+ 
+ 	files {
+ 		MAME_DIR .. "src/lib/util/abi.h",
+-		MAME_DIR .. "src/lib/util/aes256cbc.cpp",
+ 		MAME_DIR .. "src/lib/util/aes256cbc.h",
+ 		MAME_DIR .. "src/lib/util/avhuff.cpp",
+ 		MAME_DIR .. "src/lib/util/avhuff.h",
+@@ -103,7 +102,6 @@
+ 		MAME_DIR .. "src/lib/util/msdib.cpp",
+ 		MAME_DIR .. "src/lib/util/msdib.h",
+ 		MAME_DIR .. "src/lib/util/multibyte.h",
+-		MAME_DIR .. "src/lib/util/nanosvg.cpp",
+ 		MAME_DIR .. "src/lib/util/nanosvg.h",
+ 		MAME_DIR .. "src/lib/util/notifier.h",
+ 		MAME_DIR .. "src/lib/util/opresolv.cpp",
+@@ -149,3 +147,10 @@
+ 		MAME_DIR .. "src/lib/util/zippath.cpp",
+ 		MAME_DIR .. "src/lib/util/zippath.h",
+ 	}
++
++if _OPTIONS["with-emulator"] then
++	files {
++		MAME_DIR .. "src/lib/util/aes256cbc.cpp",
++		MAME_DIR .. "src/lib/util/nanosvg.cpp",
++	}
++end
+--- a/scripts/src/osd/modules.lua
++++ b/scripts/src/osd/modules.lua
+@@ -745,7 +745,9 @@
+ end
+ 
+ if not _OPTIONS["USE_QTDEBUG"] then
+-	if _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="solaris" or _OPTIONS["targetos"]=="haiku" or _OPTIONS["targetos"]=="asmjs" or _OPTIONS["targetos"]=="android" then
++	if not _OPTIONS["with-emulator"] then
++		_OPTIONS["USE_QTDEBUG"] = "0"
++	elseif _OPTIONS["targetos"]=="windows" or _OPTIONS["targetos"]=="macosx" or _OPTIONS["targetos"]=="solaris" or _OPTIONS["targetos"]=="haiku" or _OPTIONS["targetos"]=="asmjs" or _OPTIONS["targetos"]=="android" then
+ 		_OPTIONS["USE_QTDEBUG"] = "0"
+ 	else
+ 		_OPTIONS["USE_QTDEBUG"] = "1"
+--- a/scripts/src/osd/sdl.lua
++++ b/scripts/src/osd/sdl.lua
+@@ -407,6 +407,12 @@
+ 		MAME_DIR .. "src/osd/sdl",
+ 	}
+ 
++	if not _OPTIONS["with-emulator"] then
++		defines {
++			"OSD_NO_CLIPBOARD",
++		}
++	end
++
+ 	files {
+ 		MAME_DIR .. "src/osd/osdcore.cpp",
+ 		MAME_DIR .. "src/osd/osdcore.h",
+--- a/src/osd/modules/lib/osdlib_unix.cpp
++++ b/src/osd/modules/lib/osdlib_unix.cpp
+@@ -12,11 +12,13 @@
+ #include "osdcore.h"
+ #include "osdlib.h"
+ 
++#if !defined(SDLMAME_ANDROID) && !defined(OSD_NO_CLIPBOARD)
+ #ifdef SDLMAME_SDL3
+ #include <SDL3/SDL.h>
+ #else
+ #include <SDL2/SDL.h>
+ #endif
++#endif
+ 
+ #include <csignal>
+ #include <cstdio>
+@@ -139,7 +141,7 @@
+ }
+ 
+ 
+-#ifdef SDLMAME_ANDROID
++#if defined(SDLMAME_ANDROID) || defined(OSD_NO_CLIPBOARD)
+ std::string osd_get_clipboard_text() noexcept
+ {
+ 	return std::string();

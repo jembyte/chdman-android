@@ -66,6 +66,7 @@ The same binary works the same way from a Termux shell on-device, or when invoke
 - Skips the `SDL_INSTALL_ROOT` requirement when `--with-emulator` is not set, since `chdman` does not use SDL.
 - Adds a `CUSTOM_VCS_REVISION` override so the build's embedded version string can be set explicitly instead of being derived from `git describe` (the checkout above is a shallow, tag-only checkout with no full git history to describe).
 - Drops a couple of emulator-only source files (`aes256cbc.cpp`, `nanosvg.cpp`) from the tools build, and neutralizes the SDL clipboard code path, since neither is needed outside the full emulator.
+- Guards the Clang ARMv8 hardware-accelerated AES/SHA-256 path in `3rdparty/lzma/C/AesOpt.c` and `Sha256Opt.c` so it is skipped on 32-bit ARM, since leaving it enabled fails to build for the `android-arm` target; `android-arm64` is unaffected and keeps using the accelerated path.
 
 ## License and disclaimer
 

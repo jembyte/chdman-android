@@ -1,3 +1,25 @@
+--- a/3rdparty/lzma/C/AesOpt.c
++++ b/3rdparty/lzma/C/AesOpt.c
+@@ -557,7 +557,7 @@
+ #elif defined(MY_CPU_ARM_OR_ARM64) && defined(MY_CPU_LE)
+ 
+   #if defined(__clang__)
+-    #if (__clang_major__ >= 8) // fix that check
++    #if (__clang_major__ >= 8) && !defined(MY_CPU_ARM) // fix that check
+       #define USE_HW_AES
+     #endif
+   #elif defined(__GNUC__)
+--- a/3rdparty/lzma/C/Sha256Opt.c
++++ b/3rdparty/lzma/C/Sha256Opt.c
+@@ -205,7 +205,7 @@
+ #elif defined(MY_CPU_ARM_OR_ARM64)
+ 
+   #if defined(__clang__)
+-    #if (__clang_major__ >= 8) // fix that check
++    #if (__clang_major__ >= 8) && !defined(MY_CPU_ARM) // fix that check
+       #define USE_HW_SHA
+     #endif
+   #elif defined(__GNUC__)
 --- a/makefile
 +++ b/makefile
 @@ -600,6 +600,9 @@
